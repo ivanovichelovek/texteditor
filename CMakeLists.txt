@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(COVERAGE "Enable coverage instrumentation" OFF)
+option(ASAN "Enable AddressSanitizer" OFF)
 
 set(EDITOR_SOURCES
     src/buffer/buffer.cpp
@@ -35,6 +36,11 @@ if(TEST_SOURCES)
     if(COVERAGE)
         target_compile_options(tests PRIVATE -fprofile-instr-generate -fcoverage-mapping)
         target_link_options(tests PRIVATE -fprofile-instr-generate)
+    endif()
+
+    if(ASAN)
+        target_compile_options(tests PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(tests PRIVATE -fsanitize=address)
     endif()
 else()
     message(STATUS "No test files found in tests/ — skipping tests target")

@@ -30,9 +30,19 @@ class gap_buffer {
   gap_buffer(std::size_t);
   gap_buffer(std::size_t, char);
   gap_buffer(const std::string&);
+  gap_buffer(const char*);
   gap_buffer(std::string&&);
   gap_buffer(const gap_buffer&);
   gap_buffer(gap_buffer&&);
+
+  gap_buffer(Alloc);
+  gap_buffer(std::size_t, Alloc);
+  gap_buffer(std::size_t, char, Alloc);
+  gap_buffer(const std::string&, Alloc);
+  gap_buffer(const char*, Alloc);
+  gap_buffer(std::string&&, Alloc);
+  gap_buffer(const gap_buffer&, Alloc);
+  gap_buffer(gap_buffer&&, Alloc);
 
   void swap(gap_buffer&);
   gap_buffer& operator=(gap_buffer);
@@ -67,7 +77,7 @@ class gap_buffer {
   [[nodiscard]] const_reverse_iterator rend() const;
   [[nodiscard]] const_reverse_iterator crend() const;
 
-  std::string to_string() const;
+  [[nodiscard]] std::string to_string() const;
 
   iterator insert(char);
   iterator erase_in_front_of_cursor();
@@ -75,10 +85,10 @@ class gap_buffer {
 
   iterator step(int);
 
-  char& operator[](std::size_t);
-  char& at(std::size_t);
-  const char& operator[](std::size_t) const;
-  const char& at(std::size_t) const;
+  [[nodiscard]] char& operator[](std::size_t);
+  [[nodiscard]] char& at(std::size_t);
+  [[nodiscard]] const char& operator[](std::size_t) const;
+  [[nodiscard]] const char& at(std::size_t) const;
 
  private:
   char* choose_buffer();
