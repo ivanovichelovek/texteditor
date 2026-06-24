@@ -51,7 +51,6 @@ class gap_buffer {
 
   void clear();
 
-  void resize(std::size_t);
   void resize(std::size_t, char);
 
   void reserve(std::size_t);
@@ -90,6 +89,11 @@ class gap_buffer {
   [[nodiscard]] const char& operator[](std::size_t) const;
   [[nodiscard]] const char& at(std::size_t) const;
 
+  [[nodiscard]] bool operator==(const gap_buffer&) const;
+  [[nodiscard]] bool operator!=(const gap_buffer&) const;
+
+  [[nodiscard]] std::size_t GetCursorPositionIndex() const;
+
  private:
   char* choose_buffer();
 
@@ -97,12 +101,12 @@ class gap_buffer {
 
   union {
     char stack_buffer[kSSOBufferSize];
-    char* heap_buffer;
+    char* heap_buffer{nullptr};
   } data_;
-  std::size_t size_;
-  std::size_t capacity_;
-  char* gap_begin_;
-  Alloc allocator_;
+  std::size_t size_{0};
+  std::size_t capacity_{16};
+  char* gap_begin_{data_.stack_buffer};
+  Alloc allocator_{Alloc()};
 };
 
 template <typename Alloc>
