@@ -120,33 +120,43 @@ class gap_buffer<Alloc>::iterator_impl {
   using difference_type = std::ptrdiff_t;
 
   iterator_impl();
-  iterator_impl(char*);
   iterator_impl(char*, char*, std::size_t);
+
+  iterator_impl(const iterator_impl&);
+  iterator_impl(iterator_impl&&);
+
+  iterator_impl& operator=(iterator_impl);
+  void swap(iterator_impl&);
+
+  ~iterator_impl();
 
   operator iterator_impl<true>() const;
 
   iterator_impl& operator++();
-  iterator_impl operator++(int);
+  [[nodiscard]] iterator_impl operator++(int);
 
   iterator_impl& operator--();
-  iterator_impl operator--(int);
+  [[nodiscard]] iterator_impl operator--(int);
 
   iterator_impl& operator+=(difference_type);
   iterator_impl& operator-=(difference_type);
-  iterator_impl operator+(difference_type) const;
-  iterator_impl operator-(difference_type) const;
-  difference_type operator-(const iterator_impl&) const;
+  [[nodiscard]] iterator_impl operator+(difference_type) const;
+  [[nodiscard]] iterator_impl operator-(difference_type) const;
 
-  reference operator[](difference_type) const;
+  [[nodiscard]] reference operator[](difference_type) const;
 
-  reference operator*() const;
-  pointer operator->() const;
+  [[nodiscard]] reference operator*() const;
+  [[nodiscard]] pointer operator->() const;
 
-  std::strong_ordering operator<=>(const iterator_impl) const;
-  bool operator==(const iterator_impl) const;
+  [[nodiscard]] std::strong_ordering operator<=>(const iterator_impl) const;
+  [[nodiscard]] bool operator==(const iterator_impl) const;
 
  private:
-  pointer data_;
-  pointer gap_begin_;
-  std::size_t gap_size_;
+  pointer data_{nullptr};
+  pointer gap_begin_{nullptr};
+  std::size_t gap_size_{0};
 };
+
+gap_buffer<>::iterator::difference_type operator-(
+    const typename gap_buffer<>::const_iterator&,
+    const typename gap_buffer<>::const_iterator&);

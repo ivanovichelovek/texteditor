@@ -16,3 +16,4 @@ coverage/
 compile_commands.json
 
 DEVNOTES.md
+*.obsidian

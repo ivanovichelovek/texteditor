@@ -326,7 +326,7 @@ TEST(gap_buffer_smoke_test, At) {
   std::ignore = gap2.at(14);
 }
 
-// Work tests
+// Work tests (gap_buffer)
 
 TEST(gap_buffer_other, Equality) {
   gap_buffer gap1("abcd");
@@ -498,7 +498,7 @@ TEST(gap_buffer_other, OperatorSqBrackets) {
   EXPECT_EQ(gap.at(1), 'b');
   EXPECT_EQ(gap.at(2), 'c');
   EXPECT_EQ(gap.at(3), 'd');
-  EXPECT_THROW(gap.at(4), std::out_of_range);
+  EXPECT_THROW((void)gap.at(4), std::out_of_range);
   const gap_buffer gap1(gap);
   EXPECT_EQ(gap1[0], 'a');
   EXPECT_EQ(gap1[1], 'b');
@@ -508,7 +508,7 @@ TEST(gap_buffer_other, OperatorSqBrackets) {
   EXPECT_EQ(gap1.at(1), 'b');
   EXPECT_EQ(gap1.at(2), 'c');
   EXPECT_EQ(gap1.at(3), 'd');
-  EXPECT_THROW(gap1.at(4), std::out_of_range);
+  EXPECT_THROW((void)gap1.at(4), std::out_of_range);
 }
 
 TEST(gap_buffer_other, BeginEnd) {
@@ -534,3 +534,260 @@ TEST(gap_buffer_other, BeginEnd) {
 }
 
 // Tests for iterator to gap_buffer
+
+// Smoke tests for iterator
+
+TEST(gap_buffer_iterator_smoke, DefaultConstructor) {
+  gap_buffer<>::iterator iter;
+  std::ignore = iter;
+}
+
+TEST(gap_buffer_iterator_smoke, FromPointerAndSize) {
+  gap_buffer<>::iterator iter(nullptr, nullptr, 0);
+  std::ignore = iter;
+}
+
+TEST(gap_buffer_iterator_smoke, FromIterator) {
+  gap_buffer<>::iterator iter1;
+  gap_buffer<>::iterator iter(iter1);
+  gap_buffer<>::iterator iter2(std::move(iter1));
+  std::ignore = iter;
+  std::ignore = iter2;
+}
+
+TEST(gap_buffer_iterator_smoke, AssignmentOperator) {
+  gap_buffer<>::iterator iter1;
+  gap_buffer<>::iterator iter2;
+  iter2 = iter1;
+  std::ignore = iter2;
+}
+
+TEST(gap_buffer_iterator_smoke, Swap) {
+  gap_buffer<>::iterator iter1;
+  gap_buffer<>::iterator iter2;
+  std::swap(iter1, iter2);
+}
+
+TEST(gap_buffer_iterator_smoke, ConversionToConst) {
+  gap_buffer<>::iterator iter;
+  gap_buffer<>::const_iterator citer = iter;
+  std::ignore = citer;
+}
+
+TEST(gap_buffer_iterator_smoke, ArithmeticOperations) {
+  gap_buffer<> gap("abcd");
+  auto b = gap.begin();
+  auto e = gap.end();
+  std::ignore = b++;
+  ++b;
+  std::ignore = b--;
+  --b;
+  b += 1;
+  std::ignore = b + 1;
+  std::ignore = b - 1;
+  b -= 1;
+  std::ignore = e - b;
+}
+
+TEST(gap_buffer_iterator_smoke, OperatorSqBrackets) {
+  gap_buffer<> gap("abcd");
+  auto b = gap.begin();
+  std::ignore = b[0];
+  std::ignore = b[3];
+}
+
+TEST(gap_buffer_iterator_smoke, Comparison) {
+  gap_buffer<> gap("abcd");
+  auto b = gap.begin();
+  auto e = gap.end();
+  std::ignore = b < e;
+  std::ignore = b > e;
+  std::ignore = b <= e;
+  std::ignore = b >= e;
+  std::ignore = b == e;
+  std::ignore = b != e;
+}
+
+TEST(gap_buffer_iterator_smoke, Other) {
+  gap_buffer<> gap("abcd");
+  auto b = gap.begin();
+  std::ignore = *b;
+  std::ignore = b.operator->();
+}
+
+// Work tests (iterator)
+
+TEST(gap_buffer_iterator_other, Dereference) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto b = gap.begin();
+  EXPECT_EQ(*b, 'a');
+  const gap_buffer<> cgap(gap);
+  EXPECT_EQ(*cgap.begin(), 'a');
+  EXPECT_EQ(*cgap.cbegin(), 'a');
+}
+
+TEST(gap_buffer_iterator_other, PreIncrement) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.begin();
+  EXPECT_EQ(*it, 'a');
+  EXPECT_EQ(*++it, 'b');
+  EXPECT_EQ(*++it, 'c');  // crosses the gap
+  EXPECT_EQ(*++it, 'd');
+}
+
+TEST(gap_buffer_iterator_other, PostIncrement) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.begin();
+  EXPECT_EQ(*it++, 'a');
+  EXPECT_EQ(*it++, 'b');
+  EXPECT_EQ(*it++, 'c');  // crosses the gap
+  EXPECT_EQ(*it, 'd');
+}
+
+TEST(gap_buffer_iterator_other, PreDecrement) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.end();
+  EXPECT_EQ(*--it, 'd');
+  EXPECT_EQ(*--it, 'c');
+  EXPECT_EQ(*--it, 'b');  // crosses the gap
+  EXPECT_EQ(*--it, 'a');
+}
+
+TEST(gap_buffer_iterator_other, PostDecrement) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.end();
+  --it;
+  EXPECT_EQ(*it--, 'd');
+  EXPECT_EQ(*it--, 'c');
+  EXPECT_EQ(*it--, 'b');  // crosses the gap
+  EXPECT_EQ(*it, 'a');
+}
+
+TEST(gap_buffer_iterator_other, PlusEquals) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.begin();
+  it += 2;
+  EXPECT_EQ(*it, 'c');  // jumped across the gap
+  it += 1;
+  EXPECT_EQ(*it, 'd');
+}
+
+TEST(gap_buffer_iterator_other, MinusEquals) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.end();
+  it -= 2;
+  EXPECT_EQ(*it, 'c');  // jumped across the gap
+  it -= 1;
+  EXPECT_EQ(*it, 'b');
+}
+
+TEST(gap_buffer_iterator_other, PlusN) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto b = gap.begin();
+  EXPECT_EQ(*(b + 0), 'a');
+  EXPECT_EQ(*(b + 1), 'b');
+  EXPECT_EQ(*(b + 2), 'c');  // crosses the gap
+  EXPECT_EQ(*(b + 3), 'd');
+}
+
+TEST(gap_buffer_iterator_other, MinusN) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto e = gap.end();
+  EXPECT_EQ(*(e - 1), 'd');
+  EXPECT_EQ(*(e - 2), 'c');
+  EXPECT_EQ(*(e - 3), 'b');  // crosses the gap
+  EXPECT_EQ(*(e - 4), 'a');
+}
+
+TEST(gap_buffer_iterator_other, Difference) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto b = gap.begin();
+  auto e = gap.end();
+  EXPECT_EQ(e - b, 4);
+  EXPECT_EQ((b + 3) - (b + 1), 2);  // straddling the gap
+  EXPECT_EQ(b - e, -4);
+}
+
+TEST(gap_buffer_iterator_other, SubscriptOperator) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto b = gap.begin();
+  EXPECT_EQ(b[0], 'a');
+  EXPECT_EQ(b[1], 'b');
+  EXPECT_EQ(b[2], 'c');  // crosses the gap
+  EXPECT_EQ(b[3], 'd');
+}
+
+TEST(gap_buffer_iterator_other, ForwardTraversal) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  std::string out;
+  for (char c : gap) {
+    out += c;
+  }
+  EXPECT_EQ(out, "abcd");
+}
+
+TEST(gap_buffer_iterator_other, ReverseTraversal) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  std::string out;
+  for (auto it = gap.rbegin(); it != gap.rend(); ++it) {
+    out += *it;
+  }
+  EXPECT_EQ(out, "dcba");
+}
+
+TEST(gap_buffer_iterator_other, Comparison) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto b = gap.begin();
+  auto e = gap.end();
+  EXPECT_TRUE(b == b);
+  EXPECT_TRUE(b != e);
+  EXPECT_TRUE(b < e);
+  EXPECT_TRUE(e > b);
+  EXPECT_TRUE(b <= b);
+  EXPECT_TRUE(b >= b);
+  EXPECT_FALSE(b == e);
+  EXPECT_EQ(b + 4, e);
+}
+
+TEST(gap_buffer_iterator_other, MutationThroughIterator) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  *(gap.begin() + 2) = 'Y';  // crosses the gap
+  EXPECT_EQ(gap.to_string(), "abYd");
+}
+
+TEST(gap_buffer_iterator_other, ConstIteratorConversion) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.begin();
+  ++it;
+  gap_buffer<>::const_iterator cit = it;
+  EXPECT_EQ(*cit, 'b');
+  ++cit;
+  EXPECT_EQ(*cit, 'c');  // crosses the gap
+}
+
+TEST(gap_buffer_iterator_other, ConstTraversal) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  const gap_buffer<> cgap(gap);
+  std::string out;
+  for (char c : cgap) {
+    out += c;
+  }
+  EXPECT_EQ(out, "abcd");
+}
