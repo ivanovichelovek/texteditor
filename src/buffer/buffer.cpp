@@ -700,7 +700,7 @@ template <bool IsConst>
 void gap_buffer<Alloc>::iterator_impl<IsConst>::swap(iterator_impl& other) {
   std::swap(data_, other.data_);
   std::swap(gap_index_, other.gap_index_);
-  std::swap(other.gap_size_, other.gap_size_);
+  std::swap(gap_size_, other.gap_size_);
 }
 
 template <typename Alloc>
