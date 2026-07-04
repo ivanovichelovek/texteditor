@@ -376,16 +376,30 @@ template <typename Alloc>
 
 template <typename Alloc>
 [[nodiscard]] auto gap_buffer<Alloc>::begin() -> iterator {
+  if (gap_index_ == 0) {
+    return iterator(choose_buffer() + (capacity_ - size_),
+                    -static_cast<int>(capacity_ - size_), capacity_ - size_);
+  }
   return iterator(choose_buffer(), gap_index_, capacity_ - size_);
 }
 
 template <typename Alloc>
 [[nodiscard]] auto gap_buffer<Alloc>::begin() const -> const_iterator {
+  if (gap_index_ == 0) {
+    return const_iterator(choose_buffer() + (capacity_ - size_),
+                          -static_cast<int>(capacity_ - size_),
+                          capacity_ - size_);
+  }
   return const_iterator(choose_buffer(), gap_index_, capacity_ - size_);
 }
 
 template <typename Alloc>
 [[nodiscard]] auto gap_buffer<Alloc>::cbegin() const -> const_iterator {
+  if (gap_index_ == 0) {
+    return const_iterator(choose_buffer() + (capacity_ - size_),
+                          -static_cast<int>(capacity_ - size_),
+                          capacity_ - size_);
+  }
   return const_iterator(choose_buffer(), gap_index_, capacity_ - size_);
 }
 
