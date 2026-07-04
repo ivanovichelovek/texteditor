@@ -778,13 +778,19 @@ template <typename Alloc>
 template <bool IsConst>
 auto gap_buffer<Alloc>::iterator_impl<IsConst>::operator+=(
     difference_type delta) -> iterator_impl& {
-  if (gap_index_ <= static_cast<int>(delta) && gap_index_ > 0) {
-    data_ += delta + gap_size_;
-    gap_index_ -= delta + gap_size_;
-  } else {
-    data_ += delta;
-    gap_index_ -= delta;
+  // gap_index_ > 0 means we are before the gap, gap_index_ <= 0 after it.
+  // A move crosses the gap when it changes which side we are on; crossing
+  // forwards adds the gap, crossing backwards removes it.
+  difference_type shift = delta;
+  if (gap_index_ > 0) {
+    if (delta >= gap_index_) {
+      shift = delta + gap_size_;  // cross the gap forwards
+    }
+  } else if (delta < gap_index_ + gap_size_) {
+    shift = delta - gap_size_;  // cross the gap backwards
   }
+  data_ += shift;
+  gap_index_ -= shift;
   return *this;
 }
 
@@ -792,14 +798,7 @@ template <typename Alloc>
 template <bool IsConst>
 auto gap_buffer<Alloc>::iterator_impl<IsConst>::operator-=(
     difference_type delta) -> iterator_impl& {
-  if (gap_index_ + gap_size_ + delta >= 0 && gap_index_ < 0) {
-    data_ -= delta + gap_size_;
-    gap_index_ += delta + gap_size_;
-  } else {
-    data_ -= delta;
-    gap_index_ += delta;
-  }
-  return *this;
+  return *this += -delta;
 }
 
 template <typename Alloc>
@@ -824,10 +823,7 @@ template <typename Alloc>
 template <bool IsConst>
 [[nodiscard]] auto gap_buffer<Alloc>::iterator_impl<IsConst>::operator[](
     difference_type delta) const -> reference {
-  if (gap_index_ < delta) {
-    return data_[delta + gap_size_];
-  }
-  return data_[delta];
+  return *(*this + delta);
 }
 
 template <typename Alloc>
