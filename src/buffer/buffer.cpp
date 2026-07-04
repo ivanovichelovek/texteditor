@@ -465,6 +465,46 @@ auto gap_buffer<Alloc>::insert(char character) -> iterator {
 }
 
 template <typename Alloc>
+auto gap_buffer<Alloc>::insert(const std::string& text) -> iterator {
+  if (size_ + text.size() > capacity_) {
+    reserve((size_ + text.size()) << 1);
+  }
+  for (auto& character : text) {
+    ++size_;
+    construct(gap_index_, character);
+    ++gap_index_;
+  }
+  return begin() + (gap_index_ - 1);
+}
+
+template <typename Alloc>
+auto gap_buffer<Alloc>::insert(std::string&& text) -> iterator {
+  if (size_ + text.size() > capacity_) {
+    reserve((size_ + text.size()) << 1);
+  }
+  for (auto& character : text) {
+    ++size_;
+    construct(gap_index_, std::move(character));
+    ++gap_index_;
+  }
+  return begin() + (gap_index_ - 1);
+}
+
+template <typename Alloc>
+auto gap_buffer<Alloc>::insert(const char* text) -> iterator {
+  int len = std::strlen(text);
+  if (size_ + len > capacity_) {
+    reserve((size_ + len) << 1);
+  }
+  for (int index = 0; index < len; ++index) {
+    ++size_;
+    construct(gap_index_, text[index]);
+    ++gap_index_;
+  }
+  return begin() + (gap_index_ - 1);
+}
+
+template <typename Alloc>
 auto gap_buffer<Alloc>::erase_in_front_of_cursor() -> iterator {
   if (gap_index_ == 0) {
     return begin();

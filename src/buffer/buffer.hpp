@@ -85,6 +85,9 @@ class gap_buffer {
   [[nodiscard]] std::string to_string() const;
 
   iterator insert(char character);
+  iterator insert(const std::string& text);
+  iterator insert(std::string&& text);
+  iterator insert(const char* text);
   iterator erase_in_front_of_cursor();
   iterator erase_in_back_of_cursor();
 
