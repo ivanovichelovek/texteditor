@@ -1,15 +1,28 @@
 #pragma once
 #include <compare>
+#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <type_traits>
 
+template <typename Alloc>
+concept Allocator =
+    requires(Alloc a, typename Alloc::value_type* p, std::size_t n) {
+      typename Alloc::value_type;
+      { a.allocate(n) } -> std::same_as<typename Alloc::value_type*>;
+      a.deallocate(p, n);
+      { Alloc(a) } -> std::same_as<Alloc>;
+      { a == a } -> std::convertible_to<bool>;
+    };
+
 template <typename Alloc = std::allocator<char>>
 class gap_buffer {
  private:
-  using alloc_traits = std::allocator_traits<Alloc>;
+  using ReboundAlloc =
+      typename std::allocator_traits<Alloc>::template rebind_alloc<char>;
+  using alloc_traits = std::allocator_traits<ReboundAlloc>;
   template <bool>
   class iterator_impl;
 
@@ -27,33 +40,26 @@ class gap_buffer {
   using const_reverse_iterator = std::reverse_iterator<iterator_impl<true>>;
 
   gap_buffer();
-  gap_buffer(std::size_t);
-  gap_buffer(std::size_t, char);
-  gap_buffer(const std::string&);
-  gap_buffer(const char*);
-  gap_buffer(std::string&&);
-  gap_buffer(const gap_buffer&);
-  gap_buffer(gap_buffer&&);
+  gap_buffer(Alloc allocator)
+    requires Allocator<Alloc>;
+  gap_buffer(std::size_t size, Alloc allocator = Alloc());
+  gap_buffer(std::size_t size, char character, Alloc allocator = Alloc());
+  gap_buffer(const std::string& text, Alloc allocator = Alloc());
+  gap_buffer(const char* text, Alloc allocator = Alloc());
+  gap_buffer(std::string&& text, Alloc allocator = Alloc());
+  gap_buffer(const gap_buffer& other);
+  gap_buffer(gap_buffer&& other);
 
-  gap_buffer(Alloc);
-  gap_buffer(std::size_t, Alloc);
-  gap_buffer(std::size_t, char, Alloc);
-  gap_buffer(const std::string&, Alloc);
-  gap_buffer(const char*, Alloc);
-  gap_buffer(std::string&&, Alloc);
-  gap_buffer(const gap_buffer&, Alloc);
-  gap_buffer(gap_buffer&&, Alloc);
-
-  void swap(gap_buffer&);
-  gap_buffer& operator=(gap_buffer);
+  void swap(gap_buffer& other);
+  gap_buffer& operator=(gap_buffer other);
 
   ~gap_buffer();
 
   void clear();
 
-  void resize(std::size_t, char);
+  void resize(std::size_t new_size, char character);
 
-  void reserve(std::size_t);
+  void reserve(std::size_t new_capacity);
   void shrink_to_fit();
 
   [[nodiscard]] std::size_t size() const noexcept;
@@ -78,36 +84,47 @@ class gap_buffer {
 
   [[nodiscard]] std::string to_string() const;
 
-  iterator insert(char);
+  iterator insert(char character);
   iterator erase_in_front_of_cursor();
   iterator erase_in_back_of_cursor();
 
-  iterator step(int);
+  void step(int delta);
 
-  [[nodiscard]] char& operator[](std::size_t);
-  [[nodiscard]] char& at(std::size_t);
-  [[nodiscard]] const char& operator[](std::size_t) const;
-  [[nodiscard]] const char& at(std::size_t) const;
+  [[nodiscard]] char& operator[](std::size_t index);
+  [[nodiscard]] char& at(std::size_t index);
+  [[nodiscard]] const char& operator[](std::size_t index) const;
+  [[nodiscard]] const char& at(std::size_t index) const;
 
-  [[nodiscard]] bool operator==(const gap_buffer&) const;
-  [[nodiscard]] bool operator!=(const gap_buffer&) const;
-
-  [[nodiscard]] std::size_t GetCursorPositionIndex() const;
+  [[nodiscard]] std::size_t get_cursor_position_index() const;
+  [[nodiscard]] const char* get_data() const;
 
  private:
   char* choose_buffer();
+  const char* choose_buffer() const;
+  void construct(std::size_t index, char character);
+  void destroy(std::size_t index);
 
   static const std::size_t kSSOBufferSize = 16;
 
-  union {
+  union DataUnion {
     char stack_buffer[kSSOBufferSize];
-    char* heap_buffer{nullptr};
+    char* heap_buffer;
+
+    DataUnion() : stack_buffer{} {}
   } data_;
   std::size_t size_{0};
-  std::size_t capacity_{16};
-  char* gap_begin_{data_.stack_buffer};
-  Alloc allocator_{Alloc()};
+  std::size_t capacity_{kSSOBufferSize};
+  int gap_index_{0};
+  ReboundAlloc allocator_{ReboundAlloc()};
 };
+
+template <typename Alloc>
+[[nodiscard]] bool operator==(const gap_buffer<Alloc>& lhs,
+                              const gap_buffer<Alloc>& rhs);
+
+template <typename Alloc>
+[[nodiscard]] bool operator!=(const gap_buffer<Alloc>& lhs,
+                              const gap_buffer<Alloc>& rhs);
 
 template <typename Alloc>
 template <bool IsConst>
@@ -120,13 +137,13 @@ class gap_buffer<Alloc>::iterator_impl {
   using difference_type = std::ptrdiff_t;
 
   iterator_impl();
-  iterator_impl(char*, char*, std::size_t);
+  iterator_impl(pointer data, std::size_t gap_index, std::size_t gap_size);
 
-  iterator_impl(const iterator_impl&);
-  iterator_impl(iterator_impl&&);
+  iterator_impl(const iterator_impl& other);
+  iterator_impl(iterator_impl&& other);
 
-  iterator_impl& operator=(iterator_impl);
-  void swap(iterator_impl&);
+  iterator_impl& operator=(iterator_impl other);
+  void swap(iterator_impl& other);
 
   ~iterator_impl();
 
@@ -138,25 +155,43 @@ class gap_buffer<Alloc>::iterator_impl {
   iterator_impl& operator--();
   [[nodiscard]] iterator_impl operator--(int);
 
-  iterator_impl& operator+=(difference_type);
-  iterator_impl& operator-=(difference_type);
-  [[nodiscard]] iterator_impl operator+(difference_type) const;
-  [[nodiscard]] iterator_impl operator-(difference_type) const;
+  iterator_impl& operator+=(difference_type delta);
+  iterator_impl& operator-=(difference_type delta);
+  [[nodiscard]] iterator_impl operator+(difference_type delta) const;
+  [[nodiscard]] iterator_impl operator-(difference_type delta) const;
 
-  [[nodiscard]] reference operator[](difference_type) const;
+  [[nodiscard]] reference operator[](difference_type index) const;
 
   [[nodiscard]] reference operator*() const;
   [[nodiscard]] pointer operator->() const;
 
-  [[nodiscard]] std::strong_ordering operator<=>(const iterator_impl) const;
-  [[nodiscard]] bool operator==(const iterator_impl) const;
+  [[nodiscard]] std::strong_ordering operator<=>(
+      const iterator_impl& other) const;
+  [[nodiscard]] bool operator==(const iterator_impl& other) const;
+
+  [[nodiscard]] int get_gap_index() const;
+  [[nodiscard]] int get_gap_size() const;
 
  private:
   pointer data_{nullptr};
-  pointer gap_begin_{nullptr};
-  std::size_t gap_size_{0};
+  int gap_index_{0};
+  int gap_size_{0};
 };
+
+template <typename Alloc>
+gap_buffer<Alloc>::iterator::difference_type operator-(
+    const typename gap_buffer<Alloc>::const_iterator&,
+    const typename gap_buffer<Alloc>::const_iterator&);
 
 gap_buffer<>::iterator::difference_type operator-(
     const typename gap_buffer<>::const_iterator&,
     const typename gap_buffer<>::const_iterator&);
+
+gap_buffer() -> gap_buffer<>;
+gap_buffer(std::size_t) -> gap_buffer<>;
+gap_buffer(std::size_t, char) -> gap_buffer<>;
+gap_buffer(const std::string&) -> gap_buffer<>;
+gap_buffer(std::string&&) -> gap_buffer<>;
+gap_buffer(const char*) -> gap_buffer<>;
+
+#include "buffer.cpp"

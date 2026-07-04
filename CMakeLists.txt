@@ -8,7 +8,6 @@ option(COVERAGE "Enable coverage instrumentation" OFF)
 option(ASAN "Enable AddressSanitizer" OFF)
 
 set(EDITOR_SOURCES
-    src/buffer/buffer.cpp
     src/editor/editor.cpp
 )
 

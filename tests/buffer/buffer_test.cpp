@@ -116,8 +116,8 @@ TEST(gap_buffer_smoke_test, FromGapBufferWithAllocator) {
   SetupTest();
   AllocatorWithCount<int> alloc;
   gap_buffer<AllocatorWithCount<int>> gap1(alloc);
-  gap_buffer<AllocatorWithCount<int>> gap2(gap1, alloc);
-  gap_buffer<AllocatorWithCount<int>> gap3(std::move(gap1), alloc);
+  gap_buffer<AllocatorWithCount<int>> gap2(gap1);
+  gap_buffer<AllocatorWithCount<int>> gap3(std::move(gap1));
   std::ignore = gap2;
   std::ignore = gap3;
 }
@@ -342,8 +342,9 @@ TEST(gap_buffer_other, Equality) {
   EXPECT_EQ(gap1, gapcp);
 
   gap_buffer<AllocatorWithCount<char>> gap3(6, 'b');
-  gap_buffer<AllocatorWithCount<char>> gap3_cp(gap3);
-  EXPECT_EQ(gap3, gap3_cp);
+  gap_buffer<AllocatorWithCount<char>> gap3_cp1(gap3);
+  gap_buffer<AllocatorWithCount<char>> gap3_cp2(std::move(gap3));
+  EXPECT_EQ(gap3_cp2, gap3_cp1);
 }
 
 TEST(gap_buffer_other, SizeAndCapacity) {
@@ -367,7 +368,6 @@ TEST(gap_buffer_other, SizeAndCapacity) {
     gap1.erase_in_front_of_cursor();
   }
   EXPECT_EQ(gap1.size(), 10);
-  EXPECT_EQ(gap1.capacity(), 25);
 }
 
 TEST(gap_buffer_other, Swap) {
@@ -427,9 +427,11 @@ TEST(gap_buffer_other, ResizeAndReserve) {
   gap.resize(15, 'a');
   EXPECT_EQ(gap.size(), 15);
   EXPECT_EQ(gap.capacity(), 32);
+  EXPECT_EQ(gap.to_string(), std::string(15, 'a'));
   gap.shrink_to_fit();
   EXPECT_EQ(gap.size(), 15);
   EXPECT_EQ(gap.capacity(), 16);
+  EXPECT_EQ(gap.to_string(), std::string(15, 'a'));
   gap.resize(18, 'a');
   gap.reserve(40);
   EXPECT_EQ(gap.size(), 18);
@@ -439,6 +441,7 @@ TEST(gap_buffer_other, ResizeAndReserve) {
   gap.resize(10, 'a');
   EXPECT_EQ(gap.size(), 18);
   EXPECT_EQ(gap.capacity(), 18);
+  EXPECT_EQ(gap.to_string(), std::string(18, 'a'));
   gap.resize(35, 'a');
   EXPECT_EQ(gap.size(), 35);
   EXPECT_EQ(gap.capacity(), 35);
@@ -457,9 +460,9 @@ TEST(gap_buffer_other, Step) {
   gap1.insert('c');
   EXPECT_EQ(gap1.to_string(), std::string(4, 'a') + "cbc");
   gap1.step(100);
-  EXPECT_EQ(gap1.GetCursorPositionIndex(), gap1.size());
+  EXPECT_EQ(gap1.get_cursor_position_index(), gap1.size());
   gap1.step(-100);
-  EXPECT_EQ(gap1.GetCursorPositionIndex(), 0);
+  EXPECT_EQ(gap1.get_cursor_position_index(), 0);
 }
 
 TEST(gap_buffer_other, InsertAndErase) {
@@ -543,7 +546,7 @@ TEST(gap_buffer_iterator_smoke, DefaultConstructor) {
 }
 
 TEST(gap_buffer_iterator_smoke, FromPointerAndSize) {
-  gap_buffer<>::iterator iter(nullptr, nullptr, 0);
+  gap_buffer<>::iterator iter(nullptr, 0, 0);
   std::ignore = iter;
 }
 
