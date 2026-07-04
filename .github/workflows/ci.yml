@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            cmake_flags: ""
+            build_dir: build
+          - name: asan
+            cmake_flags: "-DASAN=ON"
+            build_dir: build-asan
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build libgtest-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B ${{ matrix.build_dir }} -G Ninja
+          -DCMAKE_CXX_COMPILER=clang++
+          ${{ matrix.cmake_flags }}
+
+      # src/main.cpp has no main() yet, so only the tests target links.
+      - name: Build tests
+        run: cmake --build ${{ matrix.build_dir }} --target tests -j
+
+      - name: Run tests
+        working-directory: ${{ matrix.build_dir }}
+        run: ctest --output-on-failure
