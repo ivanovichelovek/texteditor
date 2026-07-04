@@ -6,39 +6,56 @@ on:
 
 jobs:
   tests:
-    name: Tests (${{ matrix.name }})
+    name: ${{ matrix.compiler }} / ${{ matrix.config }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: default
-            cmake_flags: ""
-            build_dir: build
-          - name: asan
-            cmake_flags: "-DASAN=ON"
-            build_dir: build-asan
-
+        compiler: [gcc, clang]
+        config: [default, asan]
+    env:
+      # The runner's bundled clang is too old for gap_buffer's constrained
+      # deduction guides, so the clang job pulls a current release instead.
+      CLANG_VERSION: "20"
     steps:
       - uses: actions/checkout@v4
 
-      # Build with g++: the runner's bundled clang (18) is too old for the
-      # constrained deduction guides in gap_buffer and miscompiles the tests.
-      - name: Install dependencies
+      - name: Install base dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ cmake ninja-build libgtest-dev
+          sudo apt-get install -y cmake ninja-build libgtest-dev
+
+      - name: Install g++
+        if: matrix.compiler == 'gcc'
+        run: sudo apt-get install -y g++
+
+      - name: Install clang
+        if: matrix.compiler == 'clang'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh "${CLANG_VERSION}"
+
+      - name: Select toolchain
+        run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then
+            echo "CXX=clang++-${CLANG_VERSION}" >> "$GITHUB_ENV"
+          else
+            echo "CXX=g++" >> "$GITHUB_ENV"
+          fi
+          if [ "${{ matrix.config }}" = asan ]; then
+            echo "CMAKE_EXTRA=-DASAN=ON" >> "$GITHUB_ENV"
+          else
+            echo "CMAKE_EXTRA=" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure
-        run: >
-          cmake -S . -B ${{ matrix.build_dir }} -G Ninja
-          -DCMAKE_CXX_COMPILER=g++
-          ${{ matrix.cmake_flags }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER="${CXX}" ${CMAKE_EXTRA}
 
       # src/main.cpp has no main() yet, so only the tests target links.
       - name: Build tests
-        run: cmake --build ${{ matrix.build_dir }} --target tests -j
+        run: cmake --build build --target tests -j
 
       - name: Run tests
-        working-directory: ${{ matrix.build_dir }}
+        working-directory: build
         run: ctest --output-on-failure
