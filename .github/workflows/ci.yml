@@ -22,15 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Build with g++: the runner's bundled clang (18) is too old for the
+      # constrained deduction guides in gap_buffer and miscompiles the tests.
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build libgtest-dev
+          sudo apt-get install -y g++ cmake ninja-build libgtest-dev
 
       - name: Configure
         run: >
           cmake -S . -B ${{ matrix.build_dir }} -G Ninja
-          -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_CXX_COMPILER=g++
           ${{ matrix.cmake_flags }}
 
       # src/main.cpp has no main() yet, so only the tests target links.
