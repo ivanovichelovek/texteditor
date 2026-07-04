@@ -1,5 +1,6 @@
 build/
 build-cov/
+build-asan/
 coverage/
 
 *.o
