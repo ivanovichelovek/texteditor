@@ -794,3 +794,290 @@ TEST(gap_buffer_iterator_other, ConstTraversal) {
   }
   EXPECT_EQ(out, "abcd");
 }
+
+// Regression tests
+
+// Regression: iterator copy-assignment must transfer gap_size_ (was a self-swap
+// in iterator_impl::swap, so gap_size_ never propagated through operator=).
+TEST(gap_buffer_iterator_regression, AssignmentTransfersGapSize) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto src = gap.begin();  // gap_size_ == capacity - size == 12
+  ASSERT_NE(src.get_gap_size(), 0);
+  gap_buffer<>::iterator dst;  // gap_size_ == 0
+  dst = src;
+  EXPECT_EQ(dst.get_gap_size(), src.get_gap_size());
+  EXPECT_EQ(dst.get_gap_index(), src.get_gap_index());
+  EXPECT_EQ(*dst, 'a');
+}
+
+// Regression: with the cursor at logical position 0 the gap sits at the front,
+// so begin() must point past the gap. Traversal used to read the raw buffer.
+TEST(gap_buffer_iterator_regression, TraversalWithCursorAtFront) {
+  gap_buffer<> gap("abcd");
+  gap.step(-4);  // cursor to the very front
+  ASSERT_EQ(gap.get_cursor_position_index(), 0);
+
+  std::string forward;
+  for (char c : gap) {
+    forward += c;
+  }
+  EXPECT_EQ(forward, "abcd");
+  EXPECT_EQ(forward, gap.to_string());
+
+  std::string backward;
+  for (auto it = gap.rbegin(); it != gap.rend(); ++it) {
+    backward += *it;
+  }
+  EXPECT_EQ(backward, "dcba");
+
+  EXPECT_EQ(gap.end() - gap.begin(), 4);
+  for (std::size_t index = 0; index < gap.size(); ++index) {
+    EXPECT_EQ(gap[index], "abcd"[index]);
+  }
+}
+
+// Regression: an empty buffer must have begin() == end() so range-for is a no-op.
+TEST(gap_buffer_iterator_regression, EmptyBufferTraversal) {
+  gap_buffer<> gap;
+  EXPECT_EQ(gap.begin(), gap.end());
+  std::string out;
+  for (char c : gap) {
+    out += c;
+  }
+  EXPECT_EQ(out, "");
+}
+
+// Regression: same front-cursor case but heap-backed (capacity > SSO), so the
+// gap-crossing arithmetic runs with a large gap_size_ and ASan sees heap access.
+TEST(gap_buffer_iterator_regression, TraversalHeapCursorAtFront) {
+  std::string text = "abcdefghijklmnopqrstuvwxyz";  // 26 chars -> heap
+  gap_buffer<> gap(text);
+  gap.step(-static_cast<int>(text.size()));
+  ASSERT_GT(gap.capacity(), 16u);
+  ASSERT_EQ(gap.get_cursor_position_index(), 0);
+
+  std::string out;
+  for (char c : gap) {
+    out += c;
+  }
+  EXPECT_EQ(out, text);
+}
+
+// By design, resize() adds the new elements at the cursor, not at the end.
+TEST(gap_buffer_other, ResizeInsertsAtCursor) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);            // cursor between "ab" and "cd"
+  gap.resize(6, 'X');
+  EXPECT_EQ(gap.to_string(), "abXXcd");
+  EXPECT_EQ(gap.size(), 6);
+}
+
+// Regression: iterator + (negative delta) must cross the gap like - (positive),
+// and iterator[] must match at the gap boundary. Both used to read gap bytes;
+// the defects were masked on the stack by stale bytes left after a step().
+TEST(gap_buffer_iterator_regression, NegativeDeltaCrossesGap) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.begin() + 2;  // 'c', just past the gap
+  ASSERT_EQ(*it, 'c');
+  EXPECT_EQ(*(it + (-1)), 'b');  // crosses the gap backwards
+  EXPECT_EQ(*(it + (-1)), *(it - 1));
+  EXPECT_EQ(*(it + (-2)), 'a');
+}
+
+TEST(gap_buffer_iterator_regression, SubscriptAtGapBoundaryHeap) {
+  std::string text = "abcdefghijklmnopqrst";  // 20 chars -> heap
+  gap_buffer<> gap(text);
+  gap.step(-8);  // gap boundary sits at logical index 12
+  auto b = gap.begin();
+  for (std::size_t index = 0; index < text.size(); ++index) {
+    EXPECT_EQ(b[index], text[index]);
+  }
+}
+
+// Correctness tests for the added (previously untested) multi-char inserts.
+
+TEST(gap_buffer_insert, InsertConstStringRef) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  const std::string text = "XY";
+  auto it = gap.insert(text);
+  EXPECT_EQ(gap.to_string(), "abXYcd");
+  EXPECT_EQ(gap.size(), 6);
+  EXPECT_EQ(*it, 'Y');
+}
+
+TEST(gap_buffer_insert, InsertStringRValue) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.insert(std::string("XY"));
+  EXPECT_EQ(gap.to_string(), "abXYcd");
+  EXPECT_EQ(gap.size(), 6);
+  EXPECT_EQ(*it, 'Y');
+}
+
+TEST(gap_buffer_insert, InsertCString) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);
+  auto it = gap.insert("XY");
+  EXPECT_EQ(gap.to_string(), "abXYcd");
+  EXPECT_EQ(gap.size(), 6);
+  EXPECT_EQ(*it, 'Y');
+}
+
+TEST(gap_buffer_insert, InsertStringGrowsCapacity) {
+  gap_buffer<> gap;
+  gap.insert(std::string(40, 'z'));  // forces a reserve onto the heap
+  EXPECT_EQ(gap.size(), 40);
+  EXPECT_GT(gap.capacity(), 16u);
+  EXPECT_EQ(gap.to_string(), std::string(40, 'z'));
+}
+
+TEST(gap_buffer_other, GetData) {
+  gap_buffer<> gap("abcd");  // gap at the end: raw layout starts with the text
+  const char* data = gap.get_data();
+  ASSERT_NE(data, nullptr);
+  EXPECT_EQ(data[0], 'a');
+  EXPECT_EQ(data[3], 'd');
+}
+
+// Heap-path (capacity > SSO) tests: exercise the branches that only run once the
+// buffer has spilled onto the heap.
+
+TEST(gap_buffer_heap, LargeConstructors) {
+  gap_buffer<> from_count(25);
+  EXPECT_EQ(from_count.size(), 25);
+  EXPECT_EQ(from_count.to_string(), std::string(25, '\0'));
+
+  gap_buffer<> from_fill(25, 'q');
+  EXPECT_EQ(from_fill.to_string(), std::string(25, 'q'));
+
+  gap_buffer<> from_str(std::string(20, 'w'));
+  EXPECT_EQ(from_str.to_string(), std::string(20, 'w'));
+
+  gap_buffer<> from_cstr("abcdefghijklmnopqrst");  // 20 chars
+  EXPECT_EQ(from_cstr.to_string(), "abcdefghijklmnopqrst");
+  EXPECT_GT(from_cstr.capacity(), 16u);
+}
+
+TEST(gap_buffer_heap, MoveConstructorHeap) {
+  gap_buffer<> src(std::string(20, 'm'));
+  ASSERT_GT(src.capacity(), 16u);
+  gap_buffer<> dst(std::move(src));
+  EXPECT_EQ(dst.to_string(), std::string(20, 'm'));
+  EXPECT_EQ(src.size(), 0);
+  EXPECT_EQ(src.capacity(), 16);
+}
+
+TEST(gap_buffer_heap, SwapHeapWithHeap) {
+  gap_buffer<> a(std::string(20, 'a'));
+  gap_buffer<> b(std::string(30, 'b'));
+  a.swap(b);
+  EXPECT_EQ(a.to_string(), std::string(30, 'b'));
+  EXPECT_EQ(b.to_string(), std::string(20, 'a'));
+}
+
+TEST(gap_buffer_heap, SwapStackWithHeap) {
+  gap_buffer<> small("abc");
+  gap_buffer<> large(std::string(20, 'x'));
+  small.swap(large);
+  EXPECT_EQ(small.to_string(), std::string(20, 'x'));
+  EXPECT_EQ(large.to_string(), "abc");
+}
+
+TEST(gap_buffer_heap, ClearHeap) {
+  gap_buffer<> gap(std::string(20, 'y'));
+  ASSERT_GT(gap.capacity(), 16u);
+  gap.clear();
+  EXPECT_EQ(gap.size(), 0);
+  EXPECT_EQ(gap.capacity(), 16);
+  EXPECT_EQ(gap.to_string(), "");
+}
+
+TEST(gap_buffer_heap, ReserveWithGapInMiddle) {
+  gap_buffer<> gap("abcd");
+  gap.step(-2);  // gap sits between "ab" and "cd"
+  gap.reserve(64);
+  EXPECT_EQ(gap.capacity(), 64);
+  EXPECT_EQ(gap.to_string(), "abcd");
+  gap.insert('X');
+  EXPECT_EQ(gap.to_string(), "abXcd");
+}
+
+TEST(gap_buffer_heap, ShrinkToFitHeapWithGapInMiddle) {
+  gap_buffer<> gap(std::string(20, 'a'));
+  gap.reserve(64);
+  gap.step(-5);  // gap in the middle, capacity has slack
+  gap.shrink_to_fit();
+  EXPECT_EQ(gap.capacity(), 20);
+  EXPECT_EQ(gap.to_string(), std::string(20, 'a'));
+}
+
+// Exception-safety tests: a throwing allocator drives the catch(...) rollback
+// paths. ASan (build-asan) additionally verifies these paths do not leak.
+
+TEST(gap_buffer_exception, ConstructorRollback) {
+  ThrowingAllocator<char>::reset();
+  ThrowingAllocator<char>::throw_after = 5;  // throw on the 6th construct
+  ThrowingAllocator<char> alloc;
+  EXPECT_THROW((gap_buffer<ThrowingAllocator<char>>(25, 'a', alloc)),
+               std::runtime_error);
+  EXPECT_EQ(ThrowingAllocator<char>::live_allocations, 0u);
+  ThrowingAllocator<char>::reset();
+}
+
+TEST(gap_buffer_exception, ReserveRollbackKeepsBufferIntact) {
+  ThrowingAllocator<char>::reset();
+  ThrowingAllocator<char> alloc;
+  gap_buffer<ThrowingAllocator<char>> gap(5, 'a', alloc);  // stays on the stack
+  ASSERT_EQ(gap.capacity(), 16);
+
+  ThrowingAllocator<char>::construct_calls = 0;
+  ThrowingAllocator<char>::live_allocations = 0;
+  ThrowingAllocator<char>::throw_after = 3;  // throw partway through the copy
+  EXPECT_THROW(gap.reserve(40), std::runtime_error);
+
+  // Strong guarantee: the original buffer is untouched.
+  EXPECT_EQ(gap.capacity(), 16);
+  EXPECT_EQ(gap.to_string(), std::string(5, 'a'));
+  EXPECT_EQ(ThrowingAllocator<char>::live_allocations, 0u);
+  ThrowingAllocator<char>::reset();
+}
+
+TEST(gap_buffer_exception, ResizeRollbackKeepsSize) {
+  ThrowingAllocator<char>::reset();
+  ThrowingAllocator<char> alloc;
+  gap_buffer<ThrowingAllocator<char>> gap(20, 'a', alloc);  // on the heap
+  gap.reserve(60);  // give capacity slack so resize does not reallocate
+
+  ThrowingAllocator<char>::throw_after = ThrowingAllocator<char>::construct_calls + 5;
+  EXPECT_THROW(gap.resize(60, 'z'), std::runtime_error);
+
+  EXPECT_EQ(gap.size(), 20);
+  EXPECT_EQ(gap.to_string(), std::string(20, 'a'));
+  ThrowingAllocator<char>::reset();
+}
+
+TEST(gap_buffer_heap, ForwardAndReverseTraversalHeap) {
+  std::string text = "abcdefghijklmnopqrst";  // 20 chars -> heap
+  gap_buffer<> gap(text);
+  gap.step(-8);  // gap in the middle of a heap buffer
+
+  std::string forward;
+  for (char c : gap) {
+    forward += c;
+  }
+  EXPECT_EQ(forward, text);
+
+  std::string reverse(text.rbegin(), text.rend());
+  std::string got;
+  for (auto it = gap.rbegin(); it != gap.rend(); ++it) {
+    got += *it;
+  }
+  EXPECT_EQ(got, reverse);
+
+  for (std::size_t index = 0; index < gap.size(); ++index) {
+    EXPECT_EQ(gap[index], text[index]);
+  }
+}

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <stdexcept>
 
 struct MemoryManager {
   static size_t type_new_allocated;
@@ -87,6 +88,63 @@ bool operator==(const AllocatorWithCount<T>& lhs,
          lhs.allocator_constructed == rhs.allocator_constructed &&
          lhs.allocator_destroyed == rhs.allocator_destroyed;
 }
+
+// Allocator that throws from construct() once a configurable number of
+// construct() calls has been reached. Used to drive the exception-cleanup
+// (catch(...)) paths that char storage can never trigger on its own.
+template <typename T>
+struct ThrowingAllocator {
+  using value_type = T;
+
+  static std::size_t construct_calls;
+  static std::size_t throw_after;  // SIZE_MAX -> never throw
+  static std::size_t live_allocations;
+
+  static void reset() {
+    construct_calls = 0;
+    throw_after = static_cast<std::size_t>(-1);
+    live_allocations = 0;
+  }
+
+  ThrowingAllocator() = default;
+
+  template <typename U>
+  ThrowingAllocator(const ThrowingAllocator<U>&) {}
+
+  T* allocate(std::size_t n) {
+    ++live_allocations;
+    return static_cast<T*>(::operator new(n * sizeof(T)));
+  }
+
+  void deallocate(T* ptr, std::size_t) noexcept {
+    --live_allocations;
+    ::operator delete(ptr);
+  }
+
+  template <typename U, typename... Args>
+  void construct(U* ptr, Args&&... args) {
+    if (construct_calls >= throw_after) {
+      throw std::runtime_error("ThrowingAllocator: construct threshold reached");
+    }
+    ++construct_calls;
+    ::new (ptr) U(std::forward<Args>(args)...);
+  }
+
+  template <typename U>
+  void destroy(U* ptr) noexcept {
+    ptr->~U();
+  }
+
+  bool operator==(const ThrowingAllocator&) const { return true; }
+  bool operator!=(const ThrowingAllocator&) const { return false; }
+};
+
+template <typename T>
+std::size_t ThrowingAllocator<T>::construct_calls = 0;
+template <typename T>
+std::size_t ThrowingAllocator<T>::throw_after = static_cast<std::size_t>(-1);
+template <typename T>
+std::size_t ThrowingAllocator<T>::live_allocations = 0;
 
 template <typename T, bool PropagateOnConstruct, bool PropagateOnAssign>
 struct WhimsicalAllocator : public std::allocator<T> {
