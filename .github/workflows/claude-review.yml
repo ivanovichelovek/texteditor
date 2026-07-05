@@ -7,10 +7,12 @@ on:
 
 # Механику ревью (чтение диффа, постинг инлайн-комментариев) выполняет плагин
 # code-review; персона задаётся через --append-system-prompt и .github/review-persona.md.
+# write нужен, чтобы плагин мог реально запостить комментарии (gh pr comment /
+# mcp__github_inline_comment__create_inline_comment), а не только прочитать PR.
 permissions:
   contents: read
-  pull-requests: read
-  issues: read
+  pull-requests: write
+  issues: write
   id-token: write
 
 jobs:
@@ -28,7 +30,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
           claude_args: |
             --append-system-prompt "Веди код-ревью строго в стиле из файла .github/review-persona.md — прочитай его первым делом (Read). Смешивай манеры ревьюеров с приоритетом Олег > Артём > Яишенка > Соня. Пиши по-русски, кратко и по делу; каждому замечанию ставь severity-тег [CRITICAL]/[MAJOR]/[MINOR]/[tidy]; в конце дай сводную таблицу и вердикт. Ничего не мёржи и не пушь."
             --model claude-sonnet-5
