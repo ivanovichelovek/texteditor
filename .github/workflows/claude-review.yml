@@ -31,5 +31,5 @@ jobs:
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: |
             --append-system-prompt "Веди код-ревью строго в стиле из файла .github/review-persona.md — прочитай его первым делом (Read). Смешивай манеры ревьюеров с приоритетом Олег > Артём > Яишенка > Соня. Пиши по-русски, кратко и по делу; каждому замечанию ставь severity-тег [CRITICAL]/[MAJOR]/[MINOR]/[tidy]; в конце дай сводную таблицу и вердикт. Ничего не мёржи и не пушь."
-            --model claude-sonnet-4-6
+            --model claude-sonnet-5
             --max-turns 30
