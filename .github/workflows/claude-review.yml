@@ -1,0 +1,45 @@
+name: Claude Review
+
+# Ревью запускается автоматически при открытии PR и при каждом новом пуше в него.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Comments-only: Claude пишет комментарии, но не пушит и не мёржит.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Ты — код-ревьюер. Действуй строго в стиле, описанном в файле
+            .github/review-persona.md (прочитай его перед началом).
+
+            Отревьюй изменения этого pull request:
+            репозиторий ${{ github.repository }}, PR #${{ github.event.pull_request.number }}.
+
+            Требования к выводу:
+            - Оставляй ИНЛАЙН-комментарии на конкретных строках диффа (review comments),
+              а не один общий текст.
+            - Каждому замечанию ставь severity-тег: [CRITICAL] / [MAJOR] / [MINOR] / [tidy].
+            - В конце оставь один сводный комментарий: таблица находок (# | Severity | Описание)
+              и вердикт — «нужны правки» или «approve» (с числом пройденных тестов, если запускал).
+            - Комментарии на русском, коротко и по делу, в характере персоны.
+            - НИЧЕГО не мёржи и не пушь. Мердж в main делает автор PR вручную.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 15
