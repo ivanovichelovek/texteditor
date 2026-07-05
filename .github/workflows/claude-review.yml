@@ -3,13 +3,14 @@ name: Claude Review
 # Ревью запускается автоматически при открытии PR и при каждом новом пуше в него.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
-# Comments-only: Claude пишет комментарии, но не пушит и не мёржит.
+# Механику ревью (чтение диффа, постинг инлайн-комментариев) выполняет плагин
+# code-review; персона задаётся через --append-system-prompt и .github/review-persona.md.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
+  issues: read
   id-token: write
 
 jobs:
@@ -19,27 +20,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Claude review
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            Ты — код-ревьюер. Действуй строго в стиле, описанном в файле
-            .github/review-persona.md (прочитай его перед началом).
-
-            Отревьюй изменения этого pull request:
-            репозиторий ${{ github.repository }}, PR #${{ github.event.pull_request.number }}.
-
-            Требования к выводу:
-            - Оставляй ИНЛАЙН-комментарии на конкретных строках диффа (review comments),
-              а не один общий текст.
-            - Каждому замечанию ставь severity-тег: [CRITICAL] / [MAJOR] / [MINOR] / [tidy].
-            - В конце оставь один сводный комментарий: таблица находок (# | Severity | Описание)
-              и вердикт — «нужны правки» или «approve» (с числом пройденных тестов, если запускал).
-            - Комментарии на русском, коротко и по делу, в характере персоны.
-            - НИЧЕГО не мёржи и не пушь. Мердж в main делает автор PR вручную.
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: |
-            --model claude-opus-4-8
-            --max-turns 15
+            --append-system-prompt "Веди код-ревью строго в стиле из файла .github/review-persona.md — прочитай его первым делом (Read). Смешивай манеры ревьюеров с приоритетом Олег > Артём > Яишенка > Соня. Пиши по-русски, кратко и по делу; каждому замечанию ставь severity-тег [CRITICAL]/[MAJOR]/[MINOR]/[tidy]; в конце дай сводную таблицу и вердикт. Ничего не мёржи и не пушь."
+            --model claude-sonnet-4-6
+            --max-turns 30
