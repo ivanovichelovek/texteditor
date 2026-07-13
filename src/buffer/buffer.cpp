@@ -1,7 +1,5 @@
 #include "buffer.hpp"
 
-#include <alloca.h>
-
 #include <cstring>
 #include <stdexcept>
 
@@ -14,14 +12,14 @@ gap_buffer<Alloc>::gap_buffer(Alloc allocator)
     : allocator_(allocator) {};
 
 template <typename Alloc>
-gap_buffer<Alloc>::gap_buffer(std::size_t size, Alloc allocator)
-    : allocator_(allocator) {
+template <typename Generator>
+void gap_buffer<Alloc>::fill_construct(std::size_t size, Generator generator) {
   if (size > capacity_) {
     reserve(size);
   }
   try {
     for (std::size_t index = 0; index < size; ++index) {
-      construct(index, '\0');
+      construct(index, generator(index));
       ++size_;
     }
   } catch (...) {
@@ -36,110 +34,40 @@ gap_buffer<Alloc>::gap_buffer(std::size_t size, Alloc allocator)
     throw;
   }
   gap_index_ = size_;
+}
+
+template <typename Alloc>
+gap_buffer<Alloc>::gap_buffer(std::size_t size, Alloc allocator)
+    : allocator_(allocator) {
+  fill_construct(size, [](std::size_t index) { return '\0'; });
 }
 
 template <typename Alloc>
 gap_buffer<Alloc>::gap_buffer(std::size_t size, char character, Alloc allocator)
     : allocator_(allocator) {
-  if (size > capacity_) {
-    reserve(size);
-  }
-  try {
-    for (std::size_t index = 0; index < size; ++index) {
-      construct(index, character);
-      ++size_;
-    }
-  } catch (...) {
-    for (std::size_t index = 0; index < size_; ++index) {
-      destroy(index);
-      --size_;
-    }
-    if (capacity_ > kSSOBufferSize) {
-      alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
-      data_.heap_buffer = nullptr;
-    }
-    throw;
-  }
-  gap_index_ = size_;
+  fill_construct(size, [character](std::size_t index) { return character; });
 }
 
 template <typename Alloc>
 gap_buffer<Alloc>::gap_buffer(const std::string& text, Alloc allocator)
     : allocator_(allocator) {
-  std::size_t size = text.size();
-  if (size > capacity_) {
-    reserve(size);
-  }
-  try {
-    for (std::size_t index = 0; index < size; ++index) {
-      construct(index, text[index]);
-      ++size_;
-    }
-  } catch (...) {
-    for (std::size_t index = 0; index < size_; ++index) {
-      destroy(index);
-      --size_;
-    }
-    if (capacity_ > kSSOBufferSize) {
-      alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
-      data_.heap_buffer = nullptr;
-    }
-    throw;
-  }
-  gap_index_ = size_;
+  fill_construct(text.size(),
+                 [&text](std::size_t index) { return text[index]; });
 }
 
 template <typename Alloc>
 gap_buffer<Alloc>::gap_buffer(std::string&& text, Alloc allocator)
     : allocator_(allocator) {
-  std::size_t size = text.size();
-  if (size > capacity_) {
-    reserve(size);
-  }
-  try {
-    for (std::size_t index = 0; index < size; ++index) {
-      construct(index, std::move(text[index]));
-      ++size_;
-    }
-  } catch (...) {
-    for (std::size_t index = 0; index < size_; ++index) {
-      destroy(index);
-      --size_;
-    }
-    if (capacity_ > kSSOBufferSize) {
-      alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
-      data_.heap_buffer = nullptr;
-    }
-    throw;
-  }
-  gap_index_ = size_;
-  text = "";
+  fill_construct(text.size(),
+                 [&text](std::size_t index) { return std::move(text[index]); });
+  text.clear();
 }
 
 template <typename Alloc>
 gap_buffer<Alloc>::gap_buffer(const char* text, Alloc allocator)
     : allocator_(allocator) {
-  std::size_t size = strlen(text);
-  if (size > capacity_) {
-    reserve(size);
-  }
-  try {
-    for (std::size_t index = 0; index < size; ++index) {
-      construct(index, text[index]);
-      ++size_;
-    }
-  } catch (...) {
-    for (std::size_t index = 0; index < size_; ++index) {
-      destroy(index);
-      --size_;
-    }
-    if (capacity_ > kSSOBufferSize) {
-      alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
-      data_.heap_buffer = nullptr;
-    }
-    throw;
-  }
-  gap_index_ = size_;
+  fill_construct(std::strlen(text),
+                 [text](std::size_t index) { return text[index]; });
 }
 
 template <typename Alloc>
@@ -181,7 +109,7 @@ gap_buffer<Alloc>::gap_buffer(const gap_buffer& other)
 }
 
 template <typename Alloc>
-gap_buffer<Alloc>::gap_buffer(gap_buffer&& other)
+gap_buffer<Alloc>::gap_buffer(gap_buffer&& other) noexcept
     : data_(std::move(other.data_)),
       size_(other.size_),
       capacity_(other.capacity_),
@@ -237,7 +165,11 @@ template <typename Alloc>
 void gap_buffer<Alloc>::clear() {
   if (capacity_ > kSSOBufferSize) {
     for (std::size_t index = 0; index < size_; ++index) {
-      destroy(index);
+      if (gap_index_ > index) {
+        destroy(index);
+      } else {
+        destroy(index + (capacity_ - size_));
+      }
     }
     alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
   }
@@ -271,6 +203,16 @@ void gap_buffer<Alloc>::resize(std::size_t new_size, char character) {
 }
 
 template <typename Alloc>
+void gap_buffer<Alloc>::destroy_old_storage() {
+  for (std::size_t index = 0; index < capacity_; ++index) {
+    if (gap_index_ > index || (gap_index_ + (capacity_ - size_)) <= index) {
+      alloc_traits::destroy(allocator_, choose_buffer() + index);
+    }
+  }
+  alloc_traits::deallocate(allocator_, choose_buffer(), capacity_);
+}
+
+template <typename Alloc>
 void gap_buffer<Alloc>::reserve(std::size_t new_capacity) {
   if (new_capacity <= capacity_) {
     return;
@@ -292,12 +234,7 @@ void gap_buffer<Alloc>::reserve(std::size_t new_capacity) {
     throw;
   }
   if (capacity_ > kSSOBufferSize) {
-    for (std::size_t index = 0; index < capacity_; ++index) {
-      if (gap_index_ > index || (gap_index_ + (capacity_ - size_)) < index) {
-        alloc_traits::destroy(allocator_, choose_buffer() + index);
-      }
-    }
-    alloc_traits::deallocate(allocator_, choose_buffer(), capacity_);
+    destroy_old_storage();
   }
   capacity_ = new_capacity;
   data_.heap_buffer = new_data;
@@ -325,12 +262,7 @@ void gap_buffer<Alloc>::shrink_to_fit() {
       throw;
     }
     if (capacity_ > kSSOBufferSize) {
-      for (std::size_t index = 0; index < capacity_; ++index) {
-        if (gap_index_ > index || (gap_index_ + (capacity_ - size_)) < index) {
-          alloc_traits::destroy(allocator_, choose_buffer() + index);
-        }
-      }
-      alloc_traits::deallocate(allocator_, choose_buffer(), capacity_);
+      destroy_old_storage();
     }
     capacity_ = size_;
     data_.heap_buffer = new_data;
@@ -345,12 +277,7 @@ void gap_buffer<Alloc>::shrink_to_fit() {
       }
     }
     if (capacity_ > kSSOBufferSize) {
-      for (std::size_t index = 0; index < capacity_; ++index) {
-        if (gap_index_ > index || (gap_index_ + (capacity_ - size_)) < index) {
-          alloc_traits::destroy(allocator_, choose_buffer() + index);
-        }
-      }
-      alloc_traits::deallocate(allocator_, choose_buffer(), capacity_);
+      destroy_old_storage();
     }
     capacity_ = kSSOBufferSize;
     for (std::size_t index = 0; index < kSSOBufferSize; ++index) {
@@ -501,12 +428,13 @@ auto gap_buffer<Alloc>::insert(std::string&& text) -> iterator {
     construct(gap_index_, std::move(character));
     ++gap_index_;
   }
+  text.clear();
   return begin() + (gap_index_ - 1);
 }
 
 template <typename Alloc>
 auto gap_buffer<Alloc>::insert(const char* text) -> iterator {
-  int len = std::strlen(text);
+  std::size_t len = std::strlen(text);
   if (size_ + len > capacity_) {
     reserve((size_ + len) << 1);
   }
@@ -526,7 +454,7 @@ auto gap_buffer<Alloc>::erase_in_front_of_cursor() -> iterator {
   --gap_index_;
   destroy(gap_index_);
   --size_;
-  return begin() + (gap_index_ + 1);
+  return begin() + (gap_index_);
 }
 
 template <typename Alloc>
@@ -536,7 +464,7 @@ auto gap_buffer<Alloc>::erase_in_back_of_cursor() -> iterator {
   }
   destroy(gap_index_ + (capacity_ - size_));
   --size_;
-  return begin() + (gap_index_ + 1);
+  return begin() + (gap_index_);
 }
 
 template <typename Alloc>
@@ -678,7 +606,8 @@ gap_buffer<Alloc>::iterator_impl<IsConst>::iterator_impl(
 
 template <typename Alloc>
 template <bool IsConst>
-gap_buffer<Alloc>::iterator_impl<IsConst>::iterator_impl(iterator_impl&& other)
+gap_buffer<Alloc>::iterator_impl<IsConst>::iterator_impl(
+    iterator_impl&& other) noexcept
     : data_(other.data_),
       gap_index_(other.gap_index_),
       gap_size_(other.gap_size_) {
@@ -870,22 +799,10 @@ template <bool IsConst>
   return gap_size_;
 }
 
-template <typename Alloc>
-gap_buffer<Alloc>::iterator::difference_type operator-(
-    const typename gap_buffer<Alloc>::const_iterator& lhs,
-    const typename gap_buffer<Alloc>::const_iterator& rhs) {
-  auto logical_pos = [](const auto& it) {
-    auto pos = -it.get_gap_index();
-    if (it.get_gap_index() < 0) pos -= it.get_gap_size();
-    return pos;
-  };
-
-  return logical_pos(lhs) - logical_pos(rhs);
-}
-
-gap_buffer<>::iterator::difference_type operator-(
-    const typename gap_buffer<>::const_iterator& lhs,
-    const typename gap_buffer<>::const_iterator& rhs) {
+template <typename IterL, typename IterR>
+  requires is_gap_buffer_iterator<IterL> && is_gap_buffer_iterator<IterR>
+auto operator-(const IterL& lhs, const IterR& rhs)
+    -> decltype(lhs.get_gap_index() - rhs.get_gap_index()) {
   auto logical_pos = [](const auto& it) {
     auto pos = -it.get_gap_index();
     if (it.get_gap_index() < 0) pos -= it.get_gap_size();

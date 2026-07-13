@@ -42,13 +42,15 @@ class gap_buffer {
   gap_buffer();
   gap_buffer(Alloc allocator)
     requires Allocator<Alloc>;
+  template <typename Generator>
+  void fill_construct(std::size_t size, Generator generator);
   gap_buffer(std::size_t size, Alloc allocator = Alloc());
   gap_buffer(std::size_t size, char character, Alloc allocator = Alloc());
   gap_buffer(const std::string& text, Alloc allocator = Alloc());
   gap_buffer(const char* text, Alloc allocator = Alloc());
   gap_buffer(std::string&& text, Alloc allocator = Alloc());
   gap_buffer(const gap_buffer& other);
-  gap_buffer(gap_buffer&& other);
+  gap_buffer(gap_buffer&& other) noexcept;
 
   void swap(gap_buffer& other);
   gap_buffer& operator=(gap_buffer other);
@@ -58,6 +60,8 @@ class gap_buffer {
   void clear();
 
   void resize(std::size_t new_size, char character);
+
+  void destroy_old_storage();
 
   void reserve(std::size_t new_capacity);
   void shrink_to_fit();
@@ -118,7 +122,7 @@ class gap_buffer {
   std::size_t size_{0};
   std::size_t capacity_{kSSOBufferSize};
   int gap_index_{0};
-  ReboundAlloc allocator_{ReboundAlloc()};
+  [[no_unique_address]] ReboundAlloc allocator_{ReboundAlloc()};
 };
 
 template <typename Alloc>
@@ -133,6 +137,7 @@ template <typename Alloc>
 template <bool IsConst>
 class gap_buffer<Alloc>::iterator_impl {
  public:
+  using gap_buffer_iterator_tag = void;
   using value_type = std::conditional_t<IsConst, const char, char>;
   using pointer = std::conditional_t<IsConst, const char*, char*>;
   using iterator_category = std::random_access_iterator_tag;
@@ -143,7 +148,7 @@ class gap_buffer<Alloc>::iterator_impl {
   iterator_impl(pointer data, std::size_t gap_index, std::size_t gap_size);
 
   iterator_impl(const iterator_impl& other);
-  iterator_impl(iterator_impl&& other);
+  iterator_impl(iterator_impl&& other) noexcept;
 
   iterator_impl& operator=(iterator_impl other);
   void swap(iterator_impl& other);
@@ -181,14 +186,14 @@ class gap_buffer<Alloc>::iterator_impl {
   int gap_size_{0};
 };
 
-template <typename Alloc>
-gap_buffer<Alloc>::iterator::difference_type operator-(
-    const typename gap_buffer<Alloc>::const_iterator&,
-    const typename gap_buffer<Alloc>::const_iterator&);
+template <typename T>
+concept is_gap_buffer_iterator =
+    requires { typename T::gap_buffer_iterator_tag; };
 
-gap_buffer<>::iterator::difference_type operator-(
-    const typename gap_buffer<>::const_iterator&,
-    const typename gap_buffer<>::const_iterator&);
+template <typename IterL, typename IterR>
+  requires is_gap_buffer_iterator<IterL> && is_gap_buffer_iterator<IterR>
+auto operator-(const IterL& lhs, const IterR& rhs)
+    -> decltype(lhs.get_gap_index() - rhs.get_gap_index());
 
 gap_buffer() -> gap_buffer<>;
 gap_buffer(std::size_t) -> gap_buffer<>;
