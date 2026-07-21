@@ -52,7 +52,8 @@ class gap_buffer {
   gap_buffer(std::string&& text, Alloc allocator = Alloc())
     requires std::same_as<T, char>;
   gap_buffer(const gap_buffer& other);
-  gap_buffer(gap_buffer&& other) noexcept;
+  gap_buffer(gap_buffer&& other) noexcept
+    requires std::is_nothrow_move_constructible_v<T>;
 
   void swap(gap_buffer& other);
   gap_buffer& operator=(gap_buffer other);
@@ -210,12 +211,5 @@ template <typename IterL, typename IterR>
   requires is_gap_buffer_iterator<IterL> && is_gap_buffer_iterator<IterR>
 auto operator-(const IterL& lhs, const IterR& rhs)
     -> decltype(lhs.get_gap_index() - rhs.get_gap_index());
-
-// gap_buffer()->gap_buffer;
-// gap_buffer(std::size_t) -> gap_buffer<>;
-// gap_buffer(std::size_t, char) -> gap_buffer<>;
-// gap_buffer(const std::string&) -> gap_buffer<>;
-// gap_buffer(std::string&&) -> gap_buffer<>;
-// gap_buffer(const char*) -> gap_buffer<>;
 
 #include "buffer.cpp"

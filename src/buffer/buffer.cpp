@@ -113,6 +113,7 @@ gap_buffer<T, Alloc>::gap_buffer(const gap_buffer& other)
 
 template <typename T, Allocator Alloc>
 gap_buffer<T, Alloc>::gap_buffer(gap_buffer&& other) noexcept
+  requires std::is_nothrow_move_constructible_v<T>
     : size_(other.size_),
       capacity_(other.capacity_),
       gap_index_(other.gap_index_),
@@ -213,7 +214,6 @@ void gap_buffer<T, Alloc>::resize(std::size_t new_size, T value) {
   }
 }
 
-
 template <typename T, Allocator Alloc>
 void gap_buffer<T, Alloc>::reserve(std::size_t new_capacity) {
   if (new_capacity <= capacity_) {
@@ -303,7 +303,8 @@ void gap_buffer<T, Alloc>::shrink_to_fit() {
         alloc_traits::construct(allocator_, tmp + built, old[built]);
       }
       for (std::size_t j = 0; j < size_ - gap; ++j, ++built) {
-        alloc_traits::construct(allocator_, tmp + built, old[raw_after_old + j]);
+        alloc_traits::construct(allocator_, tmp + built,
+                                old[raw_after_old + j]);
       }
     } catch (...) {
       for (std::size_t index = 0; index < built; ++index) {
@@ -312,7 +313,8 @@ void gap_buffer<T, Alloc>::shrink_to_fit() {
       alloc_traits::deallocate(allocator_, tmp, size_);
       throw;
     }
-    destroy_elements();  // choose_buffer() is still the heap (capacity_ unchanged)
+    destroy_elements();  // choose_buffer() is still the heap (capacity_
+                         // unchanged)
     alloc_traits::deallocate(allocator_, data_.heap_buffer, capacity_);
     std::size_t raw_after_new = gap_index_ + (kSSOBufferSize - size_);
     for (std::size_t index = 0; index < gap; ++index) {
@@ -320,7 +322,8 @@ void gap_buffer<T, Alloc>::shrink_to_fit() {
                               std::move(tmp[index]));
     }
     for (std::size_t j = 0; j < size_ - gap; ++j) {
-      alloc_traits::construct(allocator_, data_.stack_buffer + raw_after_new + j,
+      alloc_traits::construct(allocator_,
+                              data_.stack_buffer + raw_after_new + j,
                               std::move(tmp[gap + j]));
     }
     for (std::size_t index = 0; index < size_; ++index) {
@@ -602,7 +605,8 @@ const T* gap_buffer<T, Alloc>::choose_buffer() const {
 
 template <typename T, Allocator Alloc>
 void gap_buffer<T, Alloc>::construct(std::size_t index, T value) {
-  alloc_traits::construct(allocator_, choose_buffer() + index, std::move(value));
+  alloc_traits::construct(allocator_, choose_buffer() + index,
+                          std::move(value));
 }
 
 template <typename T, Allocator Alloc>
