@@ -17,17 +17,17 @@ concept Allocator =
       { a == a } -> std::convertible_to<bool>;
     };
 
-template <typename Alloc = std::allocator<char>>
+template <typename T, Allocator Alloc = std::allocator<T>>
 class gap_buffer {
  private:
   using ReboundAlloc =
-      typename std::allocator_traits<Alloc>::template rebind_alloc<char>;
+      typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
   using alloc_traits = std::allocator_traits<ReboundAlloc>;
   template <bool>
   class iterator_impl;
 
  public:
-  using value_type = char;
+  using value_type = T;
   using allocator_type = Alloc;
   using size_type = std::size_t;
   using reference = value_type&;
@@ -40,17 +40,20 @@ class gap_buffer {
   using const_reverse_iterator = std::reverse_iterator<iterator_impl<true>>;
 
   gap_buffer();
-  gap_buffer(Alloc allocator)
-    requires Allocator<Alloc>;
+  gap_buffer(Alloc allocator);
   template <typename Generator>
   void fill_construct(std::size_t size, Generator generator);
   gap_buffer(std::size_t size, Alloc allocator = Alloc());
-  gap_buffer(std::size_t size, char character, Alloc allocator = Alloc());
-  gap_buffer(const std::string& text, Alloc allocator = Alloc());
-  gap_buffer(const char* text, Alloc allocator = Alloc());
-  gap_buffer(std::string&& text, Alloc allocator = Alloc());
+  gap_buffer(std::size_t size, T value, Alloc allocator = Alloc());
+  gap_buffer(const std::string& text, Alloc allocator = Alloc())
+    requires std::same_as<T, char>;
+  gap_buffer(const T* text, Alloc allocator = Alloc())
+    requires std::same_as<T, char>;
+  gap_buffer(std::string&& text, Alloc allocator = Alloc())
+    requires std::same_as<T, char>;
   gap_buffer(const gap_buffer& other);
-  gap_buffer(gap_buffer&& other) noexcept;
+  gap_buffer(gap_buffer&& other) noexcept
+    requires std::is_nothrow_move_constructible_v<T>;
 
   void swap(gap_buffer& other);
   gap_buffer& operator=(gap_buffer other);
@@ -59,9 +62,7 @@ class gap_buffer {
 
   void clear();
 
-  void resize(std::size_t new_size, char character);
-
-  void destroy_old_storage();
+  void resize(std::size_t new_size, T value);
 
   void reserve(std::size_t new_capacity);
   void shrink_to_fit();
@@ -86,38 +87,54 @@ class gap_buffer {
   [[nodiscard]] const_reverse_iterator rend() const;
   [[nodiscard]] const_reverse_iterator crend() const;
 
-  [[nodiscard]] std::string to_string() const;
+  [[nodiscard]] std::string to_string() const
+    requires std::same_as<T, char>;
 
-  iterator insert(char character);
-  iterator insert(const std::string& text);
-  iterator insert(std::string&& text);
-  iterator insert(const char* text);
+  iterator insert(T value);
+  iterator insert(const std::string& text)
+    requires std::same_as<T, char>;
+  iterator insert(std::string&& text)
+    requires std::same_as<T, char>;
+  iterator insert(const T* text)
+    requires std::same_as<T, char>;
   iterator erase_in_front_of_cursor();
   iterator erase_in_back_of_cursor();
 
   void step(int delta);
 
-  [[nodiscard]] char& operator[](std::size_t index);
-  [[nodiscard]] char& at(std::size_t index);
-  [[nodiscard]] const char& operator[](std::size_t index) const;
-  [[nodiscard]] const char& at(std::size_t index) const;
+  [[nodiscard]] T& operator[](std::size_t index);
+  [[nodiscard]] T& at(std::size_t index);
+  [[nodiscard]] const T& operator[](std::size_t index) const;
+  [[nodiscard]] const T& at(std::size_t index) const;
 
   [[nodiscard]] std::size_t get_cursor_position_index() const;
-  [[nodiscard]] const char* get_data() const;
+  [[nodiscard]] const T* get_data() const;
 
  private:
-  char* choose_buffer();
-  const char* choose_buffer() const;
-  void construct(std::size_t index, char character);
+  T* choose_buffer();
+  const T* choose_buffer() const;
+  void construct(std::size_t index, T value);
   void destroy(std::size_t index);
+  // Destroy the live (real) elements of *this in gap layout, without freeing
+  // storage. Works for both the stack and the heap buffer.
+  void destroy_elements();
+  // Move-construct the live elements of src (in gap layout for the given
+  // size/gap_index/capacity) into dst at the same raw indices, destroying the
+  // sources. Used by swap to shuffle elements between raw buffers.
+  static void relocate(ReboundAlloc& alloc, T* src, T* dst, std::size_t size,
+                       int gap_index, std::size_t capacity);
 
   static const std::size_t kSSOBufferSize = 16;
 
+  // Raw storage: gap_buffer manages element lifetimes explicitly (only the
+  // "real" elements in gap layout are ever alive), so the union neither
+  // constructs nor destroys its members.
   union DataUnion {
-    char stack_buffer[kSSOBufferSize];
-    char* heap_buffer;
+    T stack_buffer[kSSOBufferSize];
+    T* heap_buffer;
 
-    DataUnion() : stack_buffer{} {}
+    DataUnion() {}
+    ~DataUnion() {}
   } data_;
   std::size_t size_{0};
   std::size_t capacity_{kSSOBufferSize};
@@ -125,23 +142,23 @@ class gap_buffer {
   [[no_unique_address]] ReboundAlloc allocator_{ReboundAlloc()};
 };
 
-template <typename Alloc>
-[[nodiscard]] bool operator==(const gap_buffer<Alloc>& lhs,
-                              const gap_buffer<Alloc>& rhs);
+template <typename T, Allocator Alloc>
+[[nodiscard]] bool operator==(const gap_buffer<T, Alloc>& lhs,
+                              const gap_buffer<T, Alloc>& rhs);
 
-template <typename Alloc>
-[[nodiscard]] bool operator!=(const gap_buffer<Alloc>& lhs,
-                              const gap_buffer<Alloc>& rhs);
+template <typename T, Allocator Alloc>
+[[nodiscard]] bool operator!=(const gap_buffer<T, Alloc>& lhs,
+                              const gap_buffer<T, Alloc>& rhs);
 
-template <typename Alloc>
+template <typename T, Allocator Alloc>
 template <bool IsConst>
-class gap_buffer<Alloc>::iterator_impl {
+class gap_buffer<T, Alloc>::iterator_impl {
  public:
   using gap_buffer_iterator_tag = void;
-  using value_type = std::conditional_t<IsConst, const char, char>;
-  using pointer = std::conditional_t<IsConst, const char*, char*>;
+  using value_type = std::conditional_t<IsConst, const T, T>;
+  using pointer = std::conditional_t<IsConst, const T*, T*>;
   using iterator_category = std::random_access_iterator_tag;
-  using reference = std::conditional_t<IsConst, const char&, char&>;
+  using reference = std::conditional_t<IsConst, const T&, T&>;
   using difference_type = std::ptrdiff_t;
 
   iterator_impl();
@@ -194,12 +211,5 @@ template <typename IterL, typename IterR>
   requires is_gap_buffer_iterator<IterL> && is_gap_buffer_iterator<IterR>
 auto operator-(const IterL& lhs, const IterR& rhs)
     -> decltype(lhs.get_gap_index() - rhs.get_gap_index());
-
-gap_buffer() -> gap_buffer<>;
-gap_buffer(std::size_t) -> gap_buffer<>;
-gap_buffer(std::size_t, char) -> gap_buffer<>;
-gap_buffer(const std::string&) -> gap_buffer<>;
-gap_buffer(std::string&&) -> gap_buffer<>;
-gap_buffer(const char*) -> gap_buffer<>;
 
 #include "buffer.cpp"
